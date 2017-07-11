@@ -10,10 +10,11 @@ import (
 
 type (
 	slave struct {
-		PID        string    `json:"pid"`
-		Used       resources `json:"used_resources"`
-		Unreserved resources `json:"unreserved_resources"`
-		Total      resources `json:"resources"`
+		PID        string            `json:"pid"`
+		Used       resources         `json:"used_resources"`
+		Unreserved resources         `json:"unreserved_resources"`
+		Total      resources         `json:"resources"`
+		Attributes map[string]string `json:"attributes"`
 	}
 
 	framework struct {
@@ -33,7 +34,7 @@ type (
 	}
 )
 
-func newMasterStateCollector(httpClient *httpClient, ignoreFrameworkTasks bool) prometheus.Collector {
+func newMasterStateCollector(httpClient *httpClient, ignoreFrameworkTasks bool, slaveAttributeLabels []string) prometheus.Collector {
 	labels := []string{"slave"}
 	metrics := map[prometheus.Collector]func(*state, prometheus.Collector){
 		prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -161,7 +162,32 @@ func newMasterStateCollector(httpClient *httpClient, ignoreFrameworkTasks bool) 
 		},
 	}
 
-	if (!ignoreFrameworkTasks) {
+	if len(slaveAttributeLabels) > 0 {
+		normalisedAttributeLabels := normaliseLabelList(slaveAttributeLabels)
+		slaveAttributesLabelsExport := append(labels, normalisedAttributeLabels...)
+
+		metrics[counter("slave", "attributes", "Attributes assigned to slaves", slaveAttributesLabelsExport...)] = func(st *state, c prometheus.Collector) {
+			for _, s := range st.Slaves {
+				slaveAttributesExport := prometheus.Labels{
+					"slave": s.PID,
+				}
+
+				// User labels
+				for _, label := range normalisedAttributeLabels {
+					slaveAttributesExport[label] = ""
+				}
+				for key, value := range s.Attributes {
+					normalisedLabel := normaliseLabel(key)
+					if stringInSlice(normalisedLabel, normalisedAttributeLabels) {
+						slaveAttributesExport[normalisedLabel] = value
+					}
+				}
+				c.(*settableCounterVec).Set(1, getLabelValuesFromMap(slaveAttributesExport, slaveAttributesLabelsExport)...)
+				}
+		}
+	}
+
+	if !ignoreFrameworkTasks {
 		metrics[prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Help:      "Completed framework tasks",
 			Namespace: "mesos",
@@ -191,7 +217,7 @@ func newMasterStateCollector(httpClient *httpClient, ignoreFrameworkTasks bool) 
 
 	return &masterCollector{
 		httpClient: httpClient,
-		metrics: metrics,
+		metrics:    metrics,
 	}
 }
 
