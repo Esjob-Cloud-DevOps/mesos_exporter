@@ -205,6 +205,20 @@ func newMasterCollector(httpClient *httpClient) prometheus.Collector {
 			c.(*settableCounterVec).Set(starting, "starting")
 			return nil
 		},
+		counter("master", "task_states_partition_aware", "Current number of tasks by partition aware state.", "state"): func(m metricMap, c prometheus.Collector) error {
+			unreachable, ok := m["master/tasks_unreachable"]
+			gone, ok := m["master/tasks_gone"]
+			goneByOperator, ok := m["master/tasks_gone_by_operator"]
+			dropped, ok := m["master/tasks_dropped"]
+			if !ok {
+				return notFoundInMap
+			}
+			c.(*settableCounterVec).Set(unreachable, "unreachable")
+			c.(*settableCounterVec).Set(gone, "gone")
+			c.(*settableCounterVec).Set(goneByOperator, "gone_by_operator")
+			c.(*settableCounterVec).Set(dropped, "dropped")
+			return nil
+		},
 
 		// Master stats about messages
 		counter("master", "messages_outcomes_total",
